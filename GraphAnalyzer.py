@@ -75,12 +75,12 @@ def is_d_regular(G, d):
 
 # Uses Havel–Hakimi Algorithm applied to digraphs
 def generate_graph(n, out_degree, d):
-    """
-    Deterministically construct one simple digraph with:
-      - n vertices (1..n)
-      - prescribed outdegree sequence
-      - total degree d
-    """
+    
+    # Deterministically construct one simple digraph with:
+    #   - n vertices (1..n)
+    #   - prescribed outdegree sequence
+    #   - total degree d
+    
     if len(out_degree) != n:
         raise ValueError("out_degree distribution must have length n")
 
@@ -124,26 +124,26 @@ def generate_graph(n, out_degree, d):
     return G
 
 def generate_graphs(n, d, out_degree=None, sink=True, source=True):
-    """
-    Generate all simple digraphs with:
-      - n vertices (1..n)
-      - total degree d for each vertex
-      - optional outdegree sequence (multiset of length n)
-      - optional sink/source restrictions
+    
+    # Generate all simple digraphs with:
+    #   - n vertices (1..n)
+    #   - total degree d for each vertex
+    #   - optional outdegree sequence (multiset of length n)
+    #   - optional sink/source restrictions
 
-    Parameters
-    ----------
-    n : int
-        Number of vertices
-    d : int
-        Degree of each vertex
-    out_degree : list[int] or None
-        Outdegree distribution (length n). If None, all distributions are allowed.
-    sink : bool
-        If False, disallow vertices with outdegree 0.
-    source : bool
-        If False, disallow vertices with outdegree d.
-    """
+    # Parameters
+    # ----------
+    # n : int
+    #     Number of vertices
+    # d : int
+    #     Degree of each vertex
+    # out_degree : list[int] or None
+    #     Outdegree distribution (length n). If None, all distributions are allowed.
+    # sink : bool
+    #     If False, disallow vertices with outdegree 0.
+    # source : bool
+    #     If False, disallow vertices with outdegree d.
+    
 
     if out_degree is None:
         # Generate all possible outdegree distributions
@@ -226,7 +226,7 @@ def digraph_backtrack(G, degree_info):
             degree_info[u][0] += 1
             degree_info[v][1] += 1
 
-def visualize_graph(G):
+def visualize_graph(G, title, dest=".", verbose=False):
     # Use circular layout
     dot = Digraph(engine="circo")
 
@@ -237,48 +237,35 @@ def visualize_graph(G):
     for u, v in G.edges():
         dot.edge(str(u), str(v))
 
-    dot.render("circle_graph", format="png", view=True)
+    dot.render(title, directory=dest, format="png", view=verbose)
 
 
-# Example usage
 if __name__ == "__main__":
-    # Create a simple directed graph
-    #G = nx.DiGraph()
-    # edit this line with edpythges from your specfic graph
-    # Perfect n=4
-    #G.add_edges_from([(1, 2), (1, 5), (2,3), (3,4), (3,5), (4,1), (5,4), (5,2)])
-    # Perfect n=5
-    #G.add_edges_from([(1, 2), (1, 5), (2,3), (2,6), (3,4), (4,5), (4,6), (5,6), (6,1), (6,3)])
-    # Lowest found for n=4
-    #G.add_edges_from([(1, 2), (1, 5), (2,3), (3,4), (5,3), (4,1), (4,5), (5,2)])
-
-    #generate quartic graph
-    """ G = generate_graph(7, [1, 1, 2, 2, 2, 3, 3], 4)
-
-    analyze_graph(G) """
-    n = 8
-    out_distribution = [1,1,2,2,2,3,3]
+    n = 7
+    out_dist = [1,3,2,1,3,2]
     d = 4
     total = 0
+    low_sey_counter = 0
+    lowSey = n + 1
 
     for i, G in enumerate(generate_graphs(n, d, sink=False, source=False), 1):
         total = total + 1
-        if i == 1:
-            lowSey = analyze_graph(G)
+        sey_of_G = analyze_graph(G)
+        if sey_of_G < lowSey:
+            print("NEW LOW UNLOCKED")
+            lowSey = sey_of_G
             lowSeyG = G
-        else:
-            sey_of_G = analyze_graph(G)
-            if sey_of_G < lowSey:
-                print("NEW LOW UNLOCKED")
-                lowSey = sey_of_G
-                lowSeyG = G
-                print(f"Graph {i}: {list(G.edges())}")
+            print(f"Graph {i}: {list(G.edges())}")
+        # if i % 1000 == 0:
+        #     print(f"Graphs Checked: {i}, Current Low: {lowSey}")
+
+
     
     print()
     print()
     print(f"Final low: {lowSey}")
     print(f"Edge Set: {list(lowSeyG.edges())}")
     print(f"Graphs Checked: {i}")
-    #visualize_graph(lowSeyG)
+    visualize_graph(lowSeyG, f"A minimal Seymour Graph on {n} vertices", verbose=True)
     analyze_graph(lowSeyG, verbose=True)
 
