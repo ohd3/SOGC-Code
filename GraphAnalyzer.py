@@ -4,6 +4,7 @@ import networkx as nx
 import pandas as pd
 from itertools import combinations, product
 from graphviz import Digraph
+import math
 
 # Function to compute the neighborhoods
 def compute_neighborhoods(graph, vertex):
@@ -226,6 +227,62 @@ def digraph_backtrack(G, degree_info):
             degree_info[u][0] += 1
             degree_info[v][1] += 1
 
+def generate_antiprism_graph(n):
+    # Construct the undirected n-antiprism graph.
+    G = nx.Graph()
+    # top cycle: 0..n-1
+    top = list(range(1, n+1))
+    bottom = list(range(n+1, 2*n+1))
+    
+    # add cycle edges
+    for cycle in [top, bottom]:
+        for i in range(n):
+            G.add_edge(cycle[i], cycle[(i+1) % n])
+    
+    # add cross edges
+    for i in range(n):
+        G.add_edge(top[i], bottom[i])
+        G.add_edge(top[i], bottom[(i+1) % n])
+    
+    return G
+
+def generate_antiprism_orientations(n, sink=True, source=True):
+    
+    # Generate all orientations of the n-antiprism graph.
+    
+    # Parameters
+    # ----------
+    # n : int
+    #     Base cycle size (graph will have 2n vertices).
+    # sink : bool
+    #     If False, disallow any orientation with a vertex of outdegree 0.
+    # source : bool
+    #     If False, disallow any orientation with a vertex of outdegree 4 (quartic).
+    
+    UG = generate_antiprism_graph(n)
+    print("Generated undirected antiprism graph")
+    edges = list(UG.edges())
+    d = 4  # antiprism graphs are quartic
+    
+    for choice in product([0, 1], repeat=len(edges)):
+        DG = nx.DiGraph()
+        DG.add_nodes_from(UG.nodes())
+        
+        # orient edges according to choice
+        for (u, v), orient in zip(edges, choice):
+            if orient == 0:
+                DG.add_edge(u, v)
+            else:
+                DG.add_edge(v, u)
+        
+        # apply sink/source restrictions
+        if not sink and any(DG.out_degree(v) == 0 for v in DG.nodes()):
+            continue
+        if not source and any(DG.out_degree(v) == d for v in DG.nodes()):
+            continue
+        
+        yield DG
+
 def visualize_graph(G, title, dest=".", verbose=False):
     # Use circular layout
     dot = Digraph(engine="circo")
@@ -239,25 +296,111 @@ def visualize_graph(G, title, dest=".", verbose=False):
 
     dot.render(title, directory=dest, format="png", view=verbose)
 
+def rotation_cost(offset, n, outer_positions, G):
+    
+    # Compute alignment cost of placing inner cycle at a given rotation offset.
+    # The cost measures squared distance between adjacent outer/inner nodes.
+
+    cost = 0
+    for i in range(n):
+        angle = 2 * math.pi * i / n + offset
+        xi, yi = math.cos(angle), math.sin(angle)
+        inner_node = n + i + 1
+        for u, v in G.edges():
+            if u == inner_node and v in outer_positions:
+                xo, yo = outer_positions[v]
+                cost += (xi - xo)**2 + (yi - yo)**2
+            if v == inner_node and u in outer_positions:
+                xo, yo = outer_positions[u]
+                cost += (xi - xo)**2 + (yi - yo)**2
+    return cost
+
+
+def visualize_antiprism(G, n, title, dest=".", verbose=False):
+
+    # Visualize antiprism-like graph.
+    # Vertices 1..n = outer cycle, vertices n+1..2n = inner cycle.
+    # Inner cycle is rotated automatically to minimize adjacency distances.
+    # Outer cycle is rotated 45° counterclockwise.
+
+    dot = Digraph(engine="neato")
+    dot.attr(size="8,8", dpi="300", splines="line", overlap="false")
+
+    # Outer cycle positions with +45 degree rotation
+    R_outer = 2.0
+    outer_positions = {}
+    for i in range(n):
+        angle = 2 * math.pi * i / n + math.pi / 4   # <-- +90° rotation
+        x = R_outer * math.cos(angle)
+        y = R_outer * math.sin(angle)
+        node = i + 1
+        outer_positions[node] = (x, y)
+        dot.node(str(node), pos=f"{x},{y}!", shape="circle", style="filled", fillcolor="lightblue")
+
+    # Find best inner cycle rotation
+    best_offset, best_cost = None, float("inf")
+    for k in range(n):
+        offset = 2 * math.pi * k / n
+        cost = rotation_cost(offset, n, outer_positions, G)
+        if cost < best_cost:
+            best_cost, best_offset = cost, offset
+
+    # Place inner nodes with best rotation
+    R_inner = 1.0
+    for i in range(n):
+        angle = 2 * math.pi * i / n + best_offset
+        x = R_inner * math.cos(angle)
+        y = R_inner * math.sin(angle)
+        node = n + i + 1
+        dot.node(str(node), pos=f"{x},{y}!", shape="circle", style="filled", fillcolor="lightgreen")
+
+    # Add edges
+    for u, v in G.edges():
+        dot.edge(str(u), str(v), arrowsize="0.7")
+
+    dot.render(title, directory=dest, format="png", view=verbose)
+
+
 
 if __name__ == "__main__":
-    n = 7
+    # n = number of vertices (for use in generate_graphs)
+    n = None
+    # For generating antiprism orientations, use n_antiprism
+    n_antiprism = None
     out_dist = [1,3,2,1,3,2]
     d = 4
     total = 0
     low_sey_counter = 0
-    lowSey = n + 1
 
-    for i, G in enumerate(generate_graphs(n, d, sink=False, source=False), 1):
-        total = total + 1
-        sey_of_G = analyze_graph(G)
-        if sey_of_G < lowSey:
-            print("NEW LOW UNLOCKED")
-            lowSey = sey_of_G
-            lowSeyG = G
-            print(f"Graph {i}: {list(G.edges())}")
-        # if i % 1000 == 0:
-        #     print(f"Graphs Checked: {i}, Current Low: {lowSey}")
+    for i in range(1, 10):
+        G = generate_antiprism_graph(i)
+        visualize_antiprism(G, i, f"{i}-antiprism", verbose=False)
+    
+    if n_antiprism is not None:
+        lowSey = n_antiprism*2 + 1
+        for i, G in enumerate(generate_antiprism_orientations(n_antiprism, source=False, sink=False), 1):
+            total = total + 1
+            sey_of_G = analyze_graph(G)
+            if sey_of_G < lowSey:
+                print("NEW LOW UNLOCKED")
+                lowSey = sey_of_G
+                lowSeyG = G
+                print(f"Graph {i}: {list(G.edges())}")
+            if i % 1000 == 0:
+                print(f"Graphs Checked: {i}, Current Low: {lowSey}")
+
+    if n is not None:
+        lowSey = n + 1
+        for i, G in enumerate(generate_graphs(n, d, sink=False, source=False), 1):
+            total = total + 1
+            sey_of_G = analyze_graph(G)
+            if sey_of_G < lowSey:
+                print("NEW LOW UNLOCKED")
+                lowSey = sey_of_G
+                lowSeyG = G
+                print(f"Graph {i}: {list(G.edges())}")
+            # if i % 1000 == 0:
+            #     print(f"Graphs Checked: {i}, Current Low: {lowSey}")
 
 
     
@@ -266,6 +409,6 @@ if __name__ == "__main__":
     print(f"Final low: {lowSey}")
     print(f"Edge Set: {list(lowSeyG.edges())}")
     print(f"Graphs Checked: {i}")
-    visualize_graph(lowSeyG, f"A minimal Seymour Graph on {n} vertices", verbose=True)
+    visualize_antiprism(lowSeyG, n_antiprism, f"A minimal Seymour Graph on a {n_antiprism}-antiprism", verbose=True)
     analyze_graph(lowSeyG, verbose=True)
 
