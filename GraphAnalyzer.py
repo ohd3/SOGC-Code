@@ -5,6 +5,8 @@ import pandas as pd
 from itertools import combinations, product
 from graphviz import Digraph
 import math
+import os
+import shutil
 
 # Function to compute the neighborhoods
 def compute_neighborhoods(graph, vertex):
@@ -14,7 +16,6 @@ def compute_neighborhoods(graph, vertex):
 
     # Collect second out neighborhood
     for v in first_out:
-        #print(f"Vertex: {v}, Successors: {len(set(graph.successors(v)))}")
         second_out.update(graph.successors(v))
 
     # Remove vertices from the second out neighborhood that are in the first out neighborhood
@@ -62,7 +63,7 @@ def analyze_graph(graph, verbose=False):
         print()
         print(f"Seymour: {sey_count}")
         print(f"Sullivan: {sul_count}")
-    return sey_count
+    return sey_count, sul_count
 
 def is_simple_digraph(G):
     return not nx.number_of_selfloops(G)
@@ -260,7 +261,6 @@ def generate_antiprism_orientations(n, sink=True, source=True):
     #     If False, disallow any orientation with a vertex of outdegree 4 (quartic).
     
     UG = generate_antiprism_graph(n)
-    print("Generated undirected antiprism graph")
     edges = list(UG.edges())
     d = 4  # antiprism graphs are quartic
     
@@ -315,29 +315,45 @@ def rotation_cost(offset, n, outer_positions, G):
                 cost += (xi - xo)**2 + (yi - yo)**2
     return cost
 
-
 def visualize_antiprism(G, n, title, dest=".", verbose=False):
 
-    # Visualize antiprism-like graph.
-    # Vertices 1..n = outer cycle, vertices n+1..2n = inner cycle.
-    # Inner cycle is rotated automatically to minimize adjacency distances.
-    # Outer cycle is rotated 45° counterclockwise.
+    # Visualize antiprism-like digraph with color-coded vertices:
+    #   - light blue: Seymour only
+    #   - light green: Sullivan only
+    #   - gold: both Seymour & Sullivan
+    #   - gray: neither
 
     dot = Digraph(engine="neato")
     dot.attr(size="8,8", dpi="300", splines="line", overlap="false")
 
-    # Outer cycle positions with +45 degree rotation
+    # Determine color for each vertex
+    color_map = {}
+    for v in G.nodes():
+        first_out, second_out, first_in = compute_neighborhoods(G, v)
+        seymour = is_seymour(first_out, second_out)
+        sullivan = is_sullivan(first_in, second_out)
+
+        if seymour and sullivan:
+            color_map[v] = "#F4D03F"         # both
+        elif seymour:
+            color_map[v] = "lightblue"    # seymour only
+        elif sullivan:
+            color_map[v] = "lightgreen"   # sullivan only
+        else:
+            color_map[v] = "gray"       # neither
+
+    # Outer cycle (1..n)
     R_outer = 2.0
     outer_positions = {}
     for i in range(n):
-        angle = 2 * math.pi * i / n + math.pi / 4   # <-- +90° rotation
+        angle = 2 * math.pi * i / n + math.pi / 4
         x = R_outer * math.cos(angle)
         y = R_outer * math.sin(angle)
         node = i + 1
         outer_positions[node] = (x, y)
-        dot.node(str(node), pos=f"{x},{y}!", shape="circle", style="filled", fillcolor="lightblue")
+        dot.node(str(node), pos=f"{x},{y}!", shape="circle", style="filled", fillcolor=color_map[node])
 
-    # Find best inner cycle rotation
+    # Find best rotation for inner cycle
     best_offset, best_cost = None, float("inf")
     for k in range(n):
         offset = 2 * math.pi * k / n
@@ -345,14 +361,14 @@ def visualize_antiprism(G, n, title, dest=".", verbose=False):
         if cost < best_cost:
             best_cost, best_offset = cost, offset
 
-    # Place inner nodes with best rotation
+    # Inner cycle (n+1..2n)
     R_inner = 1.0
     for i in range(n):
         angle = 2 * math.pi * i / n + best_offset
         x = R_inner * math.cos(angle)
         y = R_inner * math.sin(angle)
         node = n + i + 1
-        dot.node(str(node), pos=f"{x},{y}!", shape="circle", style="filled", fillcolor="lightgreen")
+        dot.node(str(node), pos=f"{x},{y}!", shape="circle", style="filled", fillcolor=color_map[node])
 
     # Add edges
     for u, v in G.edges():
@@ -366,28 +382,90 @@ if __name__ == "__main__":
     # n = number of vertices (for use in generate_graphs)
     n = None
     # For generating antiprism orientations, use n_antiprism
-    n_antiprism = None
+    n_antiprism = 4
     out_dist = [1,3,2,1,3,2]
     d = 4
     total = 0
     low_sey_counter = 0
-
-    for i in range(1, 10):
-        G = generate_antiprism_graph(i)
-        visualize_antiprism(G, i, f"{i}-antiprism", verbose=False)
+    low_sey_given_sul = n_antiprism*2 + 1
+    low_sul_given_sey = n_antiprism*2 + 1
+    lowSey = n_antiprism*2 + 1
+    lowSul = n_antiprism*2 + 1
+    base_dir = os.getcwd()
+    sey_dir = os.path.join(base_dir, f"Minimal Seymour {n_antiprism}-antiprism")
+    sey_sul_dir = os.path.join(sey_dir, "Minimal Sullivan")
+    sul_dir = os.path.join(base_dir, f"Minimal Sullivan {n_antiprism}-antiprism")
+    sul_sey_dir = os.path.join(sul_dir, "Minimal Seymour")
     
     if n_antiprism is not None:
-        lowSey = n_antiprism*2 + 1
         for i, G in enumerate(generate_antiprism_orientations(n_antiprism, source=False, sink=False), 1):
-            total = total + 1
-            sey_of_G = analyze_graph(G)
-            if sey_of_G < lowSey:
-                print("NEW LOW UNLOCKED")
-                lowSey = sey_of_G
-                lowSeyG = G
-                print(f"Graph {i}: {list(G.edges())}")
-            if i % 1000 == 0:
-                print(f"Graphs Checked: {i}, Current Low: {lowSey}")
+            sey, sul = analyze_graph(G, verbose=False)
+
+            # --- CASE 1: New minimal Seymour ---
+            if sey < lowSey:
+                lowSey = sey
+                low_sul_given_sey = sul
+
+                # Reset minimal Seymour directory
+                shutil.rmtree(sey_dir, ignore_errors=True)
+                os.makedirs(sey_sul_dir, exist_ok=True)
+
+                visualize_antiprism(G, n_antiprism, title=f"Graph {i}", dest=sey_sul_dir, verbose=False)
+
+            # --- CASE 2: Same minimal Seymour, smaller Sullivan given minimal Seymour ---
+            elif sey == lowSey and sul < low_sul_given_sey:
+                low_sul_given_sey = sul
+
+                # Move old files out of subfolder to main folder
+                for f in os.listdir(sey_sul_dir):
+                    shutil.move(os.path.join(sey_sul_dir, f), sey_dir)
+
+                # Clear subfolder and save this new one
+                shutil.rmtree(sey_sul_dir, ignore_errors=True)
+                os.makedirs(sey_sul_dir, exist_ok=True)
+
+                visualize_antiprism(G, n_antiprism, title=f"Graph {i}", dest=sey_sul_dir, verbose=False)
+            
+            # --- CASE 3: Same minimal Seymour, same Sullivan given minimal Seymour ---
+            elif sey == lowSey and sul == low_sul_given_sey:
+                visualize_antiprism(G, n_antiprism, title=f"Graph {i}", dest=sey_sul_dir, verbose=False)
+
+            # --- CASE 4: Same minimal Seymour, larger Sullivan given minimal Seymour ---
+            elif sey == lowSey:
+                visualize_antiprism(G, n_antiprism, title=f"Graph {i}", dest=sey_dir, verbose=False)
+
+            # --- CASE 5: New minimal Sullivan ---
+            if sul < lowSul:
+                lowSul = sul
+                low_sey_given_sul = sey
+
+                # Reset minimal Sullivan directory
+                shutil.rmtree(sul_dir, ignore_errors=True)
+                os.makedirs(sul_sey_dir, exist_ok=True)
+
+                visualize_antiprism(G, n_antiprism, title=f"Graph {i}", dest=sul_sey_dir, verbose=False)
+
+            # --- CASE 6: Same minimal Sullivan, smaller Seymour given minimal Sullivan ---
+            elif sul == lowSul and sey < low_sey_given_sul:
+                low_sey_given_sul = sey
+
+                # Move old files out of subfolder to main folder
+                for f in os.listdir(sul_sey_dir):
+                    shutil.move(os.path.join(sul_sey_dir, f), sul_dir)
+
+                # Clear subfolder and save this new one
+                shutil.rmtree(sul_sey_dir, ignore_errors=True)
+                os.makedirs(sul_sey_dir, exist_ok=True)
+
+                visualize_antiprism(G, n_antiprism, title=f"Graph {i}", dest=sul_sey_dir, verbose=False)
+
+            # --- CASE 7: Same minimal Sullivan, same Seymour given minimal Sullivan ---
+            elif sul == lowSul and sey == low_sey_given_sul:
+                visualize_antiprism(G, n_antiprism, title=f"Graph {i}", dest=sul_sey_dir, verbose=False)
+
+            # --- CASE 8: Same minimal Sullivan, larger Seymour given minimal Sullivan ---
+            elif sul == lowSul:
+                visualize_antiprism(G, n_antiprism, title=f"Graph {i}", dest=sul_dir, verbose=False)
 
     if n is not None:
         lowSey = n + 1
@@ -406,9 +484,13 @@ if __name__ == "__main__":
     
     print()
     print()
-    print(f"Final low: {lowSey}")
-    print(f"Edge Set: {list(lowSeyG.edges())}")
     print(f"Graphs Checked: {i}")
-    visualize_antiprism(lowSeyG, n_antiprism, f"A minimal Seymour Graph on a {n_antiprism}-antiprism", verbose=True)
-    analyze_graph(lowSeyG, verbose=True)
+    print(f"Final Seymour low: {lowSey}")
+    print()
+    print(f"Lowest Sullivan given Seymour {low_sul_given_sey}")
+    # print(f"Edge Set: {list(lowSeyG.edges())}")
+    # visualize_antiprism(lowSeyG, n_antiprism, f"A minimal Seymour Graph on a {n_antiprism}-antiprism", verbose=True)
+    print(f"Final Sullivan low: {lowSul}")
+    print()
+    print(f"Lowest Seymour given Sullivan {low_sey_given_sul}")
 
