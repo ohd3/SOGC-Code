@@ -382,7 +382,7 @@ if __name__ == "__main__":
     # n = number of vertices (for use in generate_graphs)
     n = None
     # For generating antiprism orientations, use n_antiprism
-    n_antiprism = 4
+    n_antiprism = 8
     out_dist = [1,3,2,1,3,2]
     d = 4
     total = 0
